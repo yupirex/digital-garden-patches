@@ -1,0 +1,90 @@
+From 849b3f6ed252bab71231cc0a72de2fabd1a23026 Mon Sep 17 00:00:00 2001
+From: yupirex <yupirex@gmail.com>
+Date: Tue, 13 Oct 2026 06:48:52 +0300
+Subject: [PATCH] Add per-note graph node colors via graph-color
+
+---
+ src/helpers/linkUtils.js                      |  9 ++++++
+ src/helpers/linkUtils.test.js                 | 28 +++++++++++++++++++
+ src/site/_includes/components/graphScript.njk |  4 +--
+ 3 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/src/helpers/linkUtils.js b/src/helpers/linkUtils.js
+index ddf0f73..5b12c2c 100644
+--- a/src/helpers/linkUtils.js
++++ b/src/helpers/linkUtils.js
+@@ -251,8 +251,17 @@ async function computeGraph(data) {
+     const content = templateContent?.content || "";
+     noteContents.push(content);
+ 
++    const graphColor = v.data["dg-note-properties"]?.["graph-color"] ?? v.data["graph-color"];
++    const hexColor = typeof graphColor === "string" ? graphColor.trim() : "";
++    let color;
++    if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(hexColor)) {
++      const hex = hexColor.slice(1);
++      color = parseInt(hex.length === 3 ? hex.replace(/./g, "$&$&") : hex, 16);
++    }
++
+     nodes[v.url] = {
+       id: idx,
++      color,
+       title: v.data.title || v.fileSlug,
+       url: v.url,
+       group,
+diff --git a/src/helpers/linkUtils.test.js b/src/helpers/linkUtils.test.js
+index 287d6be..e2b510b 100644
+--- a/src/helpers/linkUtils.test.js
++++ b/src/helpers/linkUtils.test.js
+@@ -16,6 +16,34 @@ async function buildGraph(notes) {
+   return getGraph({ collections: { note: notes } });
+ }
+ 
++describe("linkUtils graph-color", () => {
++  it.each([
++    ["#ff6b6b", 0xff6b6b],
++    [" #AbC ", 0xaabbcc],
++    ["#000000", 0],
++  ])("exports HEX color %s from published properties", async (value, expected) => {
++    const graph = await buildGraph([
++      makeNote("colored", { "dg-note-properties": { "graph-color": value } }),
++    ]);
++    expect(graph.nodes["/colored/"].color).toBe(expected);
++  });
++
++  it("reads passed-through frontmatter", async () => {
++    const graph = await buildGraph([makeNote("colored", { "graph-color": "#123456" })]);
++    expect(graph.nodes["/colored/"].color).toBe(0x123456);
++  });
++
++  it.each([undefined, null, "", "red", "#12345", "#gggggg", 123, ["#fff"]])(
++    "uses the theme for missing or invalid color %j", async (value) => {
++      const graph = await buildGraph([
++        makeNote("normal", { "dg-note-properties": { "graph-color": value } }),
++      ]);
++      expect(graph.nodes["/normal/"].color).toBeUndefined();
++      expect(JSON.parse(JSON.stringify(graph)).nodes["/normal/"]).not.toHaveProperty("color");
++    },
++  );
++});
++
+ describe("linkUtils getGraph hide flags", () => {
+   it("does not hide or privatize a normal note", async () => {
+     const graph = await buildGraph([makeNote("normal")]);
+diff --git a/src/site/_includes/components/graphScript.njk b/src/site/_includes/components/graphScript.njk
+index a687773..0def903 100644
+--- a/src/site/_includes/components/graphScript.njk
++++ b/src/site/_includes/components/graphScript.njk
+@@ -239,8 +239,8 @@ function renderGraph(graphData, containerId, isFullScreen) {
+         gfx.hitArea = new Circle(0, 0, r + 2);
+         gfx._nodeId = n.id;
+ 
+-        // Draw node circle — current node gets main color, others get muted
+-        const nodeColor = n.current ? color : mutedColor;
++        // Keep custom colors while retaining the current-node outline.
++        const nodeColor = n.color ?? (n.current ? color : mutedColor);
+         gfx.beginFill(nodeColor);
+         gfx.drawCircle(0, 0, r);
+         gfx.endFill();
+-- 
+2.48.1.windows.1
+
